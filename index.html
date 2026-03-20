@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+
+<html lang="zh-HK">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>福岡親子遊 | 動態應變行程表</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="福岡BB遊">
+<meta name="theme-color" content="#F0FDF4">
+<link rel="manifest" href='data:application/manifest+json;utf8,{"name":"福岡親子動態應變行程表","short_name":"福岡BB遊","display":"standalone","start_url":".","background_color":"#F0FDF4","theme_color":"#3B82F6"}'>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+HK:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  body {
+    font-family: 'Noto Sans HK', sans-serif;
+    background:
+      radial-gradient(circle at top left, rgba(59, 130, 246, 0.10), transparent 35%),
+      radial-gradient(circle at bottom right, rgba(34, 197, 94, 0.12), transparent 30%),
+      #F0FDF4;
+    color: #1F2937;
+  }
+  .mode-btn { transition: all 0.3s ease; }
+  .mode-btn.active-normal { background-color: #3B82F6; color: white; border-color: #3B82F6; box-shadow: 0 4px 6px -1px rgba(59,130,246,0.5); }
+  .mode-btn.active-rain   { background-color: #6B7280; color: white; border-color: #6B7280; box-shadow: 0 4px 6px -1px rgba(107,114,128,0.5); }
+  .mode-btn.active-tired  { background-color: #8B5CF6; color: white; border-color: #8B5CF6; box-shadow: 0 4px 6px -1px rgba(139,92,246,0.5); }
+  .card-enter { animation: fadeIn 0.4s ease-out forwards; }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  .ai-loading {
+    display: inline-block; width: 1rem; height: 1rem;
+    border: 2px solid rgba(59,130,246,0.3); border-radius: 50%;
+    border-top-color: #3B82F6; animation: spin 1s ease-in-out infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Drag & Drop ── */
+.day-card { cursor: default; transition: box-shadow 0.2s, opacity 0.2s; }
+.day-card.dragging { opacity: 0.4; box-shadow: 0 8px 30px rgba(0,0,0,0.18); }
+.day-card.drag-over { box-shadow: 0 0 0 3px #3B82F6; }
+.drag-handle { cursor: grab; touch-action: none; user-select: none; }
+.drag-handle:active { cursor: grabbing; }
+
+/* ── Remark panel ── */
+.remark-panel { transition: max-height 0.3s ease, opacity 0.3s ease; overflow: hidden; }
+.remark-panel.collapsed { max-height: 0; opacity: 0; }
+.remark-panel.expanded  { max-height: 600px; opacity: 1; }
+.tag-must-visit { background: #FEF3C7; color: #92400E; border: 1px solid #FDE68A; }
+.tag-must-bring { background: #EDE9FE; color: #5B21B6; border: 1px solid #DDD6FE; }
+.tag-note       { background: #F0FDF4; color: #166534; border: 1px solid #BBF7D0; }
+
+/* ── Copy button ── */
+.copy-btn { transition: all 0.2s; }
+.copy-btn.copied { background-color: #D1FAE5 !important; color: #065F46 !important; border-color: #6EE7B7 !important; }
+
+/* ── Disclaimer ── */
+.ai-disclaimer { font-size: 0.7rem; color: #9CA3AF; margin-top: 6px; }
+
+/* ── Reorder number badge ── */
+.day-badge { min-width: 2rem; }
+</style>
+
+</head>
+<body class="antialiased pb-24">
+
+<!-- ══════════════ HEADER (slim) ══════════════ -->
+
+<header class="bg-white/90 backdrop-blur shadow-sm sticky top-0 z-50 px-4 py-3 rounded-b-2xl">
+  <div class="max-w-3xl mx-auto flex items-center gap-3">
+
+```
+<!-- Title -->
+<h1 class="text-base font-bold text-gray-800 flex items-center flex-shrink-0">
+  <span class="text-xl mr-1.5">🇯🇵</span> 福岡 BB 行程
+</h1>
+
+<!-- Mode pills -->
+<div class="flex gap-1.5 flex-1 overflow-x-auto no-scrollbar">
+  <button onclick="setMode('normal')" id="btn-normal"
+    class="mode-btn active-normal flex-shrink-0 flex items-center gap-1 border-2 border-gray-200 text-gray-600 rounded-full py-1.5 px-3 text-xs font-bold bg-white whitespace-nowrap">
+    ☀️ 晴朗
+  </button>
+  <button onclick="setMode('rain')" id="btn-rain"
+    class="mode-btn flex-shrink-0 flex items-center gap-1 border-2 border-gray-200 text-gray-600 rounded-full py-1.5 px-3 text-xs font-bold bg-white whitespace-nowrap">
+    🌧️ 落雨
+  </button>
+  <button onclick="setMode('tired')" id="btn-tired"
+    class="mode-btn flex-shrink-0 flex items-center gap-1 border-2 border-gray-200 text-gray-600 rounded-full py-1.5 px-3 text-xs font-bold bg-white whitespace-nowrap">
+    😭 BB攰
+  </button>
+</div>
+
+<!-- Icon buttons -->
+<div class="flex items-center gap-1.5 flex-shrink-0">
+  <button onclick="openSosModal()" title="育嬰/緊急"
+    class="w-9 h-9 flex items-center justify-center rounded-full bg-red-50 border border-red-100 text-lg hover:bg-red-100 transition">
+    🍼
+  </button>
+  <button onclick="configureApiKey()" title="設定 AI Key"
+    class="w-9 h-9 flex items-center justify-center rounded-full bg-blue-50 border border-blue-100 text-lg hover:bg-blue-100 transition">
+    🔑
+  </button>
+</div>
+```
+
+  </div>
+</header>
+
+<!-- ══════════════ MAIN ══════════════ -->
+
+<div class="max-w-3xl mx-auto px-4 mt-4">
+  <div id="api-status" class="hidden text-xs rounded-xl px-3 py-2 border mb-3"></div>
+  <div class="flex items-center gap-2 mb-4">
+    <button onclick="toggleEditMode()" id="edit-mode-btn"
+      class="text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 transition flex items-center gap-1.5 shadow-sm">
+      <span id="edit-icon">✏️</span>
+      <span id="edit-label">編輯次序 / 備註</span>
+    </button>
+    <span id="edit-hint" class="text-xs text-gray-400 hidden">拖動 ☰ 調換次序</span>
+  </div>
+</div>
+<main class="max-w-3xl mx-auto px-4" id="itinerary-container"></main>
+
+<!-- ══════════════ SOS MODAL ══════════════ -->
+
+<div id="sos-modal" class="fixed inset-0 bg-black/50 z-[100] hidden items-end sm:items-center justify-center">
+  <div class="bg-white w-full sm:max-w-md h-[85vh] sm:h-auto sm:max-h-[90vh] rounded-t-3xl sm:rounded-3xl p-6 overflow-y-auto flex flex-col mt-auto sm:mt-0 transform transition-transform duration-300 translate-y-full sm:translate-y-0" id="modal-content">
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="text-2xl font-bold text-red-600 flex items-center"><span class="mr-2">🍼</span> 育嬰地圖與緊急求助</h2>
+      <button onclick="closeSosModal()" class="text-gray-400 hover:text-gray-600 text-3xl font-bold" aria-label="關閉">&times;</button>
+    </div>
+
+```
+<div class="space-y-4 text-gray-700">
+  <!-- AI Translate -->
+  <div class="bg-gradient-to-r from-indigo-50 to-sky-50 p-4 rounded-xl border border-indigo-100 shadow-sm">
+    <h3 class="font-bold text-lg text-indigo-700 mb-2 flex items-center"><span class="mr-2 text-xl">🗣️</span> 需要幫忙？告訴 AI</h3>
+    <p class="text-xs text-indigo-600 mb-3">輸入你想講的話，AI 會幫你翻譯成有禮貌的日文俾當地人睇。</p>
+    <div class="flex flex-col space-y-2">
+      <input type="text" id="ai-translate-input" placeholder="例如：請問哪裡有熱水可以沖奶粉？"
+        class="w-full px-3 py-2 border border-indigo-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+      <button onclick="translateWithAI()" id="btn-translate"
+        class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg text-sm transition flex items-center justify-center">
+        ✨ AI 幫我翻譯
+      </button>
+    </div>
+    <div id="ai-translate-result" class="hidden mt-3 p-3 bg-white border border-indigo-200 rounded-lg text-sm text-gray-800">
+      <div id="ai-translate-text"></div>
+      <!-- Copy button -->
+      <button id="copy-translate-btn" onclick="copyTranslation()" class="copy-btn mt-2 text-xs font-bold px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition hidden">
+        📋 複製日文
+      </button>
+    </div>
+  </div>
+
+  <!-- Buy supplies -->
+  <div class="bg-red-50 p-4 rounded-xl border border-red-100">
+    <h3 class="font-bold text-lg text-red-700 mb-2">🛍️ 買尿片/奶粉/BB食物</h3>
+    <ul class="list-disc pl-5 space-y-1 text-sm">
+      <li><span class="font-semibold">阿卡將本舖：</span>瑪麗諾亞城 或 LaLaport 福岡。
+        <a href="https://maps.google.com/?q=アカチャンホンポ+マリノアシティ福岡" target="_blank" class="text-blue-500 text-xs ml-1 underline">地圖↗</a>
+      </li>
+      <li><span class="font-semibold">玩具反斗城：</span>博多運河城、Mark Is 福岡百道。
+        <a href="https://maps.google.com/?q=トイザらス+キャナルシティ博多" target="_blank" class="text-blue-500 text-xs ml-1 underline">地圖↗</a>
+      </li>
+      <li><span class="font-semibold">臨時急用：</span>天神/博多各大藥妝店、超市通常都有少量尿片和即食粥。</li>
+    </ul>
+  </div>
+
+  <!-- Nursing rooms -->
+  <div class="bg-blue-50 p-4 rounded-xl border border-blue-100">
+    <h3 class="font-bold text-lg text-blue-700 mb-2">🚼 優質育嬰室推介</h3>
+    <p class="text-sm mb-2 text-gray-600">百貨公司童裝樓層通常有較完整育嬰室：</p>
+    <ul class="list-disc pl-5 space-y-1 text-sm">
+      <li><span class="font-semibold">天神區：</span>岩田屋本館 6F
+        <a href="https://maps.google.com/?q=岩田屋本館+天神+福岡" target="_blank" class="text-blue-500 text-xs ml-1 underline">地圖↗</a>
+        、福岡三越 9F
+        <a href="https://maps.google.com/?q=福岡三越" target="_blank" class="text-blue-500 text-xs ml-1 underline">地圖↗</a>
+        、大丸東館 B1F
+        <a href="https://maps.google.com/?q=大丸福岡天神店" target="_blank" class="text-blue-500 text-xs ml-1 underline">地圖↗</a>
+      </li>
+      <li><span class="font-semibold">博多區：</span>阪急百貨 7F
+        <a href="https://maps.google.com/?q=博多阪急" target="_blank" class="text-blue-500 text-xs ml-1 underline">地圖↗</a>
+        、博多運河城各區
+        <a href="https://maps.google.com/?q=キャナルシティ博多" target="_blank" class="text-blue-500 text-xs ml-1 underline">地圖↗</a>
+        、AMU Plaza 8F
+        <a href="https://maps.google.com/?q=アミュプラザ博多" target="_blank" class="text-blue-500 text-xs ml-1 underline">地圖↗</a>
+      </li>
+    </ul>
+  </div>
+</div>
+
+<button onclick="closeSosModal()" class="mt-6 w-full bg-gray-800 text-white font-bold py-3 rounded-xl hover:bg-gray-700 active:bg-gray-900">
+  明白，關閉
+</button>
+```
+
+  </div>
+</div>
+
+<!-- ══════════════ REMARK MODAL ══════════════ -->
+
+<div id="remark-modal" class="fixed inset-0 bg-black/50 z-[100] hidden items-end sm:items-center justify-center">
+  <div class="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 mt-auto sm:mt-0" id="remark-modal-content">
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="text-xl font-bold text-gray-800">📝 編輯備註</h2>
+      <button onclick="closeRemarkModal()" class="text-gray-400 hover:text-gray-600 text-3xl font-bold">&times;</button>
+    </div>
+    <p id="remark-modal-title" class="text-sm text-gray-500 mb-4"></p>
+
+```
+<!-- Tag selector -->
+<div class="mb-4">
+  <p class="text-xs font-bold text-gray-500 mb-2">選擇類型：</p>
+  <div class="flex gap-2 flex-wrap">
+    <button onclick="selectTag('must-visit')" id="tag-must-visit" class="tag-btn text-xs font-bold px-3 py-1.5 rounded-full border transition">⭐ 必到景點</button>
+    <button onclick="selectTag('must-bring')" id="tag-must-bring" class="tag-btn text-xs font-bold px-3 py-1.5 rounded-full border transition">🎒 必備物品</button>
+    <button onclick="selectTag('note')"       id="tag-note"       class="tag-btn text-xs font-bold px-3 py-1.5 rounded-full border transition">📌 備忘</button>
+  </div>
+</div>
+
+<!-- Text input -->
+<textarea id="remark-input" rows="4" placeholder="輸入備註內容，例如：&#10;⭐ 太宰府必須去，已查過開放時間&#10;🎒 記得帶防曬、BB食物&#10;📌 酒店可寄存行李"
+  class="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"></textarea>
+
+<div class="flex gap-2 mt-4">
+  <button onclick="saveRemark()" class="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition">儲存備註</button>
+  <button onclick="clearRemark()" class="px-4 bg-red-50 text-red-600 font-bold py-3 rounded-xl hover:bg-red-100 border border-red-100 transition">清除</button>
+</div>
+```
+
+  </div>
+</div>
+
+<!-- ══════════════ SCRIPT ══════════════ -->
+
+<script>
+// ─── Config ───────────────────────────────────────────────
+const GEMINI_MODEL = "gemini-2.5-flash";
+const API_KEY_STORAGE_KEY = "fukuoka_bb_gemini_api_key";
+const ORDER_STORAGE_KEY   = "fukuoka_day_order";
+const REMARKS_STORAGE_KEY = "fukuoka_remarks";
+
+let apiKey  = localStorage.getItem(API_KEY_STORAGE_KEY) || "";
+let editMode = false;
+let currentMode = "normal";
+let dragSrcIndex = null;
+let lastTranslatedJP = "";
+let currentRemarkIndex = null;
+let selectedTag = "";
+
+// ─── Itinerary data ───────────────────────────────────────
+const itineraryData = [
+  {
+    day:1, date:"5月17日", title:"抵達福岡 - 天神適應期", location:"天神區",
+    mapsUrl:"https://maps.google.com/?q=天神地下街+福岡",
+    normal:{ icon:"🚶", color:"text-blue-600", bg:"bg-blue-50", action:"原定計劃",
+      desc:"順利抵達福岡機場後，盡快到市區酒店 Check-in 放低行李。傍晚推BB車閒逛「天神地下街」，路面平坦恆溫，極度適合剛落機適應環境。晚餐建議直接去福岡 Parco 或岩田屋等百貨公司高層的餐廳，座位通常較寬敞且備有高腳 BB 椅，方便餵食。",
+      transport:"🚇 地鐵機場線：福岡機場站 ➔ 天神站（約 11 分鐘，免轉車）。沿途大站通常設有升降機，推 BB 車相對方便。" },
+    rain:{ icon:"🏢", color:"text-gray-600", bg:"bg-gray-100", action:"完全室內不濕身",
+      desc:"遇上大雨也無需擔心。天神地下街連通多個百貨公司，你們可以全程在地下街及室內商場移動，完全不怕雨淋。如需換片餵奶，可優先前往岩田屋本館 6 樓的育嬰室。",
+      transport:"🚇 地鐵機場線直達天神。出閘後直接進入天神地下街，全日幾乎無需回到地面。" },
+    tired:{ icon:"🛌", color:"text-purple-600", bg:"bg-purple-50", action:"快速安頓休息",
+      desc:"如果經歷飛行後 BB 顯得極度疲倦或開始扭計哭鬧，建議取消逛街行程。直接在酒店安頓，大人輪流到附近便利店或地下街買外賣回房間吃，讓 BB 提早沖涼、飲奶睡覺。",
+      transport:"🚕 的士：若行李繁多且 BB 哭鬧，可考慮由機場直接去天神酒店，換取更舒服的抵達體驗。" }
+  },
+  {
+    day:2, date:"5月18日", title:"大濠公園自然散步", location:"大濠公園",
+    mapsUrl:"https://maps.google.com/?q=大濠公園+福岡",
+    normal:{ icon:"🌳", color:"text-green-600", bg:"bg-green-50", action:"原定計劃",
+      desc:"早上空氣清新，前往「大濠公園」。這裡有大湖和極平坦的環湖步道，是福岡推 BB 車相當舒服的地方。下午可以在公園內咖啡店休息，再到旁邊草地讓小朋友放電。",
+      transport:"🚇 地鐵機場線：天神站 ➔ 大濠公園站（約 4 分鐘）。可優先選擇有升降機出口。" },
+    rain:{ icon:"🖼️", color:"text-gray-600", bg:"bg-gray-100", action:"轉移室內展館",
+      desc:"若遇下雨，戶外草地會濕滑。可改去「福岡市美術館」或轉搭地鐵去「Mark Is 福岡百道」避雨。兩者都比戶外公園更容易照顧幼兒節奏。",
+      transport:"🚇 交通與晴天相同。美術館步行距離較長，記得準備雨具。" },
+    tired:{ icon:"☕", color:"text-purple-600", bg:"bg-purple-50", action:"定點放空",
+      desc:"BB 如果中途睡著或不願走動，大人可以直接留在湖邊咖啡店休息，等午睡完成後再決定是否繼續行程，不必勉強轉景點。",
+      transport:"🚇 交通與晴天相同。若提早回程，可避開繁忙時間。" }
+  },
+  {
+    day:3, date:"5月19日", title:"海之中道放電日", location:"海之中道",
+    mapsUrl:"https://maps.google.com/?q=海の中道海浜公園+福岡",
+    normal:{ icon:"🦘", color:"text-orange-500", bg:"bg-orange-50", action:"原定計劃",
+      desc:"全日戶外探索！前往「海之中道海濱公園」，可看動物、踩單車、賞花。對 1 歲幼兒來說有很多新鮮視覺刺激，但也記得預留午睡時間。",
+      transport:"🚆 JR：博多站 ➔ 香椎站 ➔ 海之中道站，出站後步行即達。" },
+    rain:{ icon:"🐬", color:"text-gray-600", bg:"bg-gray-100", action:"提早去水族館",
+      desc:"落雨天去戶外大公園會很狼狽，建議把水族館行程調到今天。館內恆溫，海豚表演和大型水槽已足夠玩大半日。",
+      transport:"🚆 交通與晴天相同。由車站步行數分鐘可達。" },
+    tired:{ icon:"🚌", color:"text-purple-600", bg:"bg-purple-50", action:"善用園內交通",
+      desc:"海之中道範圍很大，如果 BB 不肯坐單車或推車，切勿勉強步行。可善用園內接駁車，只看最核心區域，滿足後就提早回程。",
+      transport:"🚢 若想減少轉車，也可研究由博多埠頭乘船前往附近區域。" }
+  },
+  {
+    day:4, date:"5月20日", title:"太宰府文化體驗", location:"太宰府",
+    mapsUrl:"https://maps.google.com/?q=太宰府天満宮",
+    normal:{ icon:"⛩️", color:"text-red-600", bg:"bg-red-50", action:"原定計劃",
+      desc:"乘搭西鐵前往太宰府，慢慢逛表參道、參拜天滿宮，再視情況去九州國立博物館。文化景點節奏較慢，適合大人小朋友一齊走。",
+      transport:"🚆 西鐵福岡（天神）站 ➔ 二日市站轉乘 ➔ 太宰府站。" },
+    rain:{ icon:"🏛️", color:"text-gray-600", bg:"bg-gray-100", action:"直奔博物館",
+      desc:"雨天時可縮短參道停留時間，直接前往九州國立博物館。館內空間大、對推車友善，亦較容易找到休息位。",
+      transport:"🚆 交通與晴天相同，雨天記得留意路面防滑。" },
+    tired:{ icon:"🍵", color:"text-purple-600", bg:"bg-purple-50", action:"參道找餐廳休息",
+      desc:"若小朋友搭車後已很疲倦，可直接在參道找餐廳或咖啡店坐低休息，之後視狀態決定是否回程，不必堅持去完所有景點。",
+      transport:"🚆 交通與晴天相同，回程可選較舒適的班次。" }
+  },
+  {
+    day:5, date:"5月21日", title:"福岡塔與海濱", location:"百道濱",
+    mapsUrl:"https://maps.google.com/?q=福岡タワー",
+    normal:{ icon:"🗼", color:"text-blue-500", bg:"bg-blue-50", action:"原定計劃",
+      desc:"下午前往福岡塔，之後到百道濱散步。海邊景色開揚，適合影家庭相，不過最好避開正午強光時段。",
+      transport:"🚌 由天神乘西鐵巴士前往「福岡塔南口」。" },
+    rain:{ icon:"🛍️", color:"text-gray-600", bg:"bg-gray-100", action:"室內遊樂+商場",
+      desc:"下雨天海邊風大，建議改去附近室內娛樂設施或商場，例如 E-ZO 或 Mark Is 福岡百道，較易處理臨時換片、食飯和休息。",
+      transport:"🚌 下車後步行不遠即可進入室內設施。" },
+    tired:{ icon:"🚖", color:"text-purple-600", bg:"bg-purple-50", action:"取消海灘，搭的士",
+      desc:"若大家都攰，建議只保留一個短景點，之後直接搭的士回市區。取消海灘可以省下大量清潔和轉場體力。",
+      transport:"🚕 福岡塔一帶較容易截到的士。" }
+  },
+  {
+    day:6, date:"5月22日", title:"Marine World 水族館", location:"海之中道",
+    mapsUrl:"https://maps.google.com/?q=マリンワールド海の中道",
+    normal:{ icon:"🐟", color:"text-cyan-600", bg:"bg-cyan-50", action:"原定計劃",
+      desc:"全日去 Marine World。館內對推車友善，亦通常備有較完善育嬰設備，屬於很穩陣的親子景點。",
+      transport:"🚆 JR 路線與 Day 3 類似。" },
+    rain:{ icon:"👍", color:"text-gray-600", bg:"bg-gray-100", action:"照常進行",
+      desc:"水族館本身是極佳雨天方案。如果之前已因下雨調到今日以外的日子，可改去 LaLaport 福岡購物和補充 BB 用品。",
+      transport:"🚆 若改去 LaLaport，可由博多乘 JR 到竹下站再步行。" },
+    tired:{ icon:"🛋️", color:"text-purple-600", bg:"bg-purple-50", action:"大水槽前午睡",
+      desc:"如果 BB 想瞓，水族館反而好用。找一個安靜角落，讓小朋友在推車午睡，大人也可以順勢休息。",
+      transport:"🚆 交通與晴天相同，回程可避開繁忙時段。" }
+  },
+  {
+    day:7, date:"5月23日", title:"運河城購物日", location:"博多運河城",
+    mapsUrl:"https://maps.google.com/?q=キャナルシティ博多",
+    normal:{ icon:"🛍️", color:"text-pink-600", bg:"bg-pink-50", action:"原定計劃",
+      desc:"行程尾聲可去博多運河城買手信、看噴泉表演，再到附近食飯。商場空間大，安排上算輕鬆。",
+      transport:"🚇 天神南站 ➔ 櫛田神社前站，出站後步行即達。" },
+    rain:{ icon:"👍", color:"text-gray-600", bg:"bg-gray-100", action:"照常進行",
+      desc:"商場大部分區域有上蓋，雨天仍可一站式完成食飯和購物。",
+      transport:"🚇 地鐵加短距離步行即可。" },
+    tired:{ icon:"🧸", color:"text-purple-600", bg:"bg-purple-50", action:"商場借車/兒童區",
+      desc:"若 BB 不願坐自己推車，可先去服務台了解是否有兒童車或相關支援，再用 food court 快速處理一餐，減少等位壓力。",
+      transport:"🚶 住得近的話，亦可散步前往；太累就直接搭的士。" }
+  },
+  {
+    day:8, date:"5月24日", title:"博多站與回程", location:"博多車站",
+    mapsUrl:"https://maps.google.com/?q=博多駅",
+    normal:{ icon:"✈️", color:"text-blue-800", bg:"bg-blue-50", action:"原定計劃",
+      desc:"最後一天可先在博多站附近輕鬆行一轉，再去機場。行程宜保留彈性，避免趕頭趕命。",
+      transport:"🚇 博多站 ➔ 福岡機場站只需數分鐘，十分方便。" },
+    rain:{ icon:"🏬", color:"text-gray-600", bg:"bg-gray-100", action:"取消頂樓，逛地下街",
+      desc:"雨天可集中在博多站內商場和地下街活動，全程較易避雨，之後再直接前往機場。",
+      transport:"🚇 商場和地鐵連接方便。" },
+    tired:{ icon:"🛫", color:"text-purple-600", bg:"bg-purple-50", action:"提早入機場禁區",
+      desc:"最後一天如果大家都攰，提早去機場通常係最舒服做法。入禁區後慢慢休息，比在市區硬撐購物更輕鬆。",
+      transport:"🚕 若行李多，可直接搭的士去機場。" }
+  }
+];
+
+// ─── State ────────────────────────────────────────────────
+let dayOrder  = JSON.parse(localStorage.getItem(ORDER_STORAGE_KEY)  || "null") || itineraryData.map((_,i)=>i);
+let remarks   = JSON.parse(localStorage.getItem(REMARKS_STORAGE_KEY)|| "{}");
+
+function saveOrder()   { localStorage.setItem(ORDER_STORAGE_KEY,   JSON.stringify(dayOrder)); }
+function saveRemarks() { localStorage.setItem(REMARKS_STORAGE_KEY, JSON.stringify(remarks)); }
+
+// ─── Util ─────────────────────────────────────────────────
+async function fetchWithRetry(url, options, maxRetries=5) {
+  const delays = [1000,2000,4000,8000,16000];
+  for (let i=0; i<maxRetries; i++) {
+    try {
+      const res = await fetch(url, options);
+      if (!res.ok) { const t = await res.text(); throw new Error(`HTTP ${res.status}: ${t}`); }
+      return await res.json();
+    } catch(e) {
+      if (i===maxRetries-1) throw e;
+      await new Promise(r=>setTimeout(r, delays[i]));
+    }
+  }
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
+}
+function formatAiText(text, tone="default") {
+  const safe = escapeHtml(text).replace(/\*\*(.*?)\*\*/g,'<span class="font-bold">$1</span>').replace(/\n/g,"<br>");
+  const cls = tone==="indigo" ? "text-indigo-900" : "text-gray-800";
+  return `<div class="${cls} leading-relaxed">${safe}</div>`;
+}
+
+// ─── API status ───────────────────────────────────────────
+function updateApiStatus() {
+  const el = document.getElementById("api-status");
+  el.classList.remove("hidden","bg-blue-50","border-blue-100","text-blue-700","bg-amber-50","border-amber-200","text-amber-700");
+  if (apiKey) {
+    el.classList.add("bg-blue-50","border-blue-100","text-blue-700");
+    el.textContent = "AI 功能已就緒。餐廳推薦同緊急翻譯可以直接使用。";
+  } else {
+    el.classList.add("bg-amber-50","border-amber-200","text-amber-700");
+    el.textContent = "未設定 Gemini API Key。基本行程可照常使用；AI 翻譯同餐廳推薦需先按「設定 AI Key」。";
+  }
+  el.classList.remove("hidden");
+}
+
+function configureApiKey() {
+  const input = window.prompt("請貼上你的 Gemini API Key。只會儲存在呢部裝置的瀏覽器 localStorage。", apiKey);
+  if (input===null) return;
+  apiKey = input.trim();
+  apiKey ? localStorage.setItem(API_KEY_STORAGE_KEY, apiKey) : localStorage.removeItem(API_KEY_STORAGE_KEY);
+  updateApiStatus();
+}
+function ensureApiKey() {
+  if (apiKey) return true;
+  updateApiStatus();
+  alert("未設定 Gemini API Key，請先按右上角「設定 AI Key」。");
+  return false;
+}
+
+// ─── Mode ─────────────────────────────────────────────────
+function setMode(mode) {
+  currentMode = mode;
+  document.querySelectorAll(".mode-btn").forEach(b=>{
+    b.classList.remove("active-normal","active-rain","active-tired");
+    b.classList.add("bg-white");
+  });
+  const btn = document.getElementById(`btn-${mode}`);
+  btn.classList.remove("bg-white");
+  btn.classList.add(`active-${mode}`);
+  renderItinerary();
+}
+
+// ─── Edit mode ────────────────────────────────────────────
+function toggleEditMode() {
+  editMode = !editMode;
+  document.getElementById("edit-label").textContent = editMode ? "完成編輯" : "編輯行程次序 / 備註";
+  document.getElementById("edit-icon").textContent  = editMode ? "✅" : "✏️";
+  document.getElementById("edit-hint").classList.toggle("hidden", !editMode);
+  renderItinerary();
+}
+
+// ─── Render ───────────────────────────────────────────────
+function renderItinerary() {
+  const container = document.getElementById("itinerary-container");
+  container.innerHTML = "";
+
+  dayOrder.forEach((dataIndex, orderPos) => {
+    const dayData = itineraryData[dataIndex];
+    const plan    = dayData[currentMode];
+    const remark  = remarks[dataIndex] || null;
+
+    let borderClass = "border-blue-100";
+    if (currentMode==="rain")  borderClass = "border-gray-300";
+    if (currentMode==="tired") borderClass = "border-purple-200";
+
+    // Remark tags HTML
+    let remarkHtml = "";
+    if (remark) {
+      const tagLabel = remark.tag==="must-visit" ? "⭐ 必到景點" : remark.tag==="must-bring" ? "🎒 必備物品" : "📌 備忘";
+      const tagClass = `tag-${remark.tag}`;
+      remarkHtml = `
+        <div class="mt-3 p-3 rounded-xl border ${tagClass} text-sm">
+          <span class="font-bold text-xs px-2 py-0.5 rounded-full ${tagClass} mr-2">${tagLabel}</span>
+          <span class="whitespace-pre-wrap">${escapeHtml(remark.text)}</span>
+        </div>`;
+    }
+
+    // Drag handle (edit mode only)
+    const handleHtml = editMode
+      ? `<div class="drag-handle text-gray-300 text-2xl px-1 flex items-center select-none" title="拖動排序">☰</div>`
+      : "";
+
+    // Remark button
+    const remarkBtnHtml = editMode
+      ? `<button onclick="openRemarkModal(${dataIndex})"
+           class="text-xs font-bold px-2 py-1 rounded-lg border border-gray-200 bg-gray-50 text-gray-500 hover:bg-yellow-50 hover:border-yellow-300 hover:text-yellow-700 transition ml-1">
+           ${remark ? "✏️ 改備註" : "📝 加備註"}
+         </button>`
+      : "";
+
+    const cardHtml = `
+      <div class="day-card bg-white/95 rounded-2xl p-5 mb-5 shadow-sm border ${borderClass} card-enter flex gap-3"
+           style="animation-delay:${orderPos*0.05}s"
+           draggable="${editMode}"
+           data-order="${orderPos}"
+           data-index="${dataIndex}">
+        ${handleHtml}
+        <div class="flex-1 min-w-0">
+          <div class="flex justify-between items-start gap-2 mb-3">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="day-badge bg-blue-100 text-blue-700 text-xs font-black px-2 py-1 rounded-lg">DAY ${orderPos+1}</span>
+              <span class="text-xs text-gray-400">${dayData.date}</span>
+              <h3 class="text-xl font-bold text-gray-800 w-full mt-1">${dayData.title}</h3>
+            </div>
+            <div class="flex items-center gap-1 flex-shrink-0">
+              <a href="${dayData.mapsUrl}" target="_blank"
+                 class="bg-gray-100 text-gray-600 text-xs font-bold px-2 py-1 rounded-md flex items-center whitespace-nowrap hover:bg-blue-50 hover:text-blue-600 transition">
+                📍 ${dayData.location} ↗
+              </a>
+              ${remarkBtnHtml}
+            </div>
+          </div>
+
+          ${remarkHtml}
+
+          <div class="${plan.bg} rounded-xl p-4 mt-2">
+            <div class="flex items-center mb-2">
+              <span class="text-2xl mr-2">${plan.icon}</span>
+              <span class="font-bold ${plan.color} text-sm bg-white px-2 py-1 rounded-full shadow-sm">
+                ${currentMode==="normal"?"☀️":currentMode==="rain"?"🌧️":"😭"}
+                應變對策：${plan.action}
+              </span>
+            </div>
+            <p class="text-gray-700 text-sm leading-relaxed mt-2 text-justify">${plan.desc}</p>
+            <div class="mt-4 bg-white/70 p-3 rounded-lg border border-gray-100/50 shadow-sm text-sm">
+              <div class="font-bold text-gray-700 flex items-center mb-1.5">
+                <span class="mr-1.5 text-lg">🚥</span> 交通指南
+              </div>
+              <p class="text-gray-600 leading-relaxed text-justify">${plan.transport}</p>
+            </div>
+            <button onclick="getAIRestaurants(${dataIndex}, ${orderPos}, this)"
+              class="mt-4 w-full sm:w-auto text-xs font-bold text-blue-600 bg-white border border-blue-200 hover:bg-blue-50 px-4 py-2 rounded-lg transition flex items-center justify-center shadow-sm">
+              ✨ AI 推薦附近 BB 友善食肆
+            </button>
+            <div id="ai-restaurant-result-${orderPos}" class="hidden mt-3 text-sm text-gray-700"></div>
+          </div>
+        </div>
+      </div>`;
+
+    container.insertAdjacentHTML("beforeend", cardHtml);
+  });
+
+  if (editMode) initDragDrop();
+}
+
+// ─── Drag & Drop ──────────────────────────────────────────
+function initDragDrop() {
+  const cards = document.querySelectorAll(".day-card");
+
+  cards.forEach(card => {
+    card.addEventListener("dragstart", e => {
+      dragSrcIndex = +card.dataset.order;
+      card.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+    });
+    card.addEventListener("dragend", () => {
+      card.classList.remove("dragging");
+      document.querySelectorAll(".day-card").forEach(c=>c.classList.remove("drag-over"));
+    });
+    card.addEventListener("dragover", e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      document.querySelectorAll(".day-card").forEach(c=>c.classList.remove("drag-over"));
+      card.classList.add("drag-over");
+    });
+    card.addEventListener("drop", e => {
+      e.preventDefault();
+      const targetIndex = +card.dataset.order;
+      if (dragSrcIndex===null || dragSrcIndex===targetIndex) return;
+      // Reorder dayOrder array
+      const moved = dayOrder.splice(dragSrcIndex, 1)[0];
+      dayOrder.splice(targetIndex, 0, moved);
+      dragSrcIndex = null;
+      saveOrder();
+      renderItinerary();
+    });
+
+    // Touch support
+    const handle = card.querySelector(".drag-handle");
+    if (!handle) return;
+    let touchStartY = 0;
+    handle.addEventListener("touchstart", e => {
+      touchStartY = e.touches[0].clientY;
+      dragSrcIndex = +card.dataset.order;
+    }, {passive:true});
+    handle.addEventListener("touchmove", e => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const el = document.elementFromPoint(touch.clientX, touch.clientY);
+      const target = el?.closest(".day-card");
+      document.querySelectorAll(".day-card").forEach(c=>c.classList.remove("drag-over"));
+      if (target && target!==card) target.classList.add("drag-over");
+    }, {passive:false});
+    handle.addEventListener("touchend", e => {
+      const touch = e.changedTouches[0];
+      const el = document.elementFromPoint(touch.clientX, touch.clientY);
+      const target = el?.closest(".day-card");
+      if (target) {
+        const targetIdx = +target.dataset.order;
+        if (dragSrcIndex!==null && dragSrcIndex!==targetIdx) {
+          const moved = dayOrder.splice(dragSrcIndex,1)[0];
+          dayOrder.splice(targetIdx,0,moved);
+          saveOrder();
+          renderItinerary();
+        }
+      }
+      dragSrcIndex = null;
+      document.querySelectorAll(".day-card").forEach(c=>c.classList.remove("drag-over"));
+    });
+  });
+}
+
+// ─── Remark modal ─────────────────────────────────────────
+function openRemarkModal(dataIndex) {
+  currentRemarkIndex = dataIndex;
+  selectedTag = remarks[dataIndex]?.tag || "";
+  const dayData = itineraryData[dataIndex];
+  document.getElementById("remark-modal-title").textContent = `${dayData.date} ・ ${dayData.title}`;
+  document.getElementById("remark-input").value = remarks[dataIndex]?.text || "";
+  updateTagButtons();
+  const m = document.getElementById("remark-modal");
+  m.classList.remove("hidden"); m.classList.add("flex");
+}
+function closeRemarkModal() {
+  const m = document.getElementById("remark-modal");
+  m.classList.add("hidden"); m.classList.remove("flex");
+  currentRemarkIndex = null;
+}
+function selectTag(tag) {
+  selectedTag = selectedTag===tag ? "" : tag;
+  updateTagButtons();
+}
+function updateTagButtons() {
+  const tags = ["must-visit","must-bring","note"];
+  tags.forEach(t => {
+    const btn = document.getElementById(`tag-${t}`);
+    const isSelected = selectedTag===t;
+    btn.className = `tag-btn text-xs font-bold px-3 py-1.5 rounded-full border transition ${isSelected ? `tag-${t} ring-2 ring-offset-1 ring-current` : "bg-white text-gray-500 border-gray-200"}`;
+  });
+}
+function saveRemark() {
+  const text = document.getElementById("remark-input").value.trim();
+  if (currentRemarkIndex===null) return;
+  if (text) {
+    remarks[currentRemarkIndex] = { tag: selectedTag || "note", text };
+  } else {
+    delete remarks[currentRemarkIndex];
+  }
+  saveRemarks();
+  closeRemarkModal();
+  renderItinerary();
+}
+function clearRemark() {
+  document.getElementById("remark-input").value = "";
+  selectedTag = "";
+  updateTagButtons();
+  if (currentRemarkIndex!==null) {
+    delete remarks[currentRemarkIndex];
+    saveRemarks();
+    closeRemarkModal();
+    renderItinerary();
+  }
+}
+
+// ─── AI Gemini ────────────────────────────────────────────
+async function callGemini(prompt, systemText) {
+  const payload = {
+    contents: [{ parts: [{ text: prompt }] }],
+    systemInstruction: { parts: [{ text: systemText }] }
+  };
+  const data = await fetchWithRetry(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+    { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload) }
+  );
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+}
+
+async function getAIRestaurants(dataIndex, orderPos, btn) {
+  if (!ensureApiKey()) return;
+  const dayData  = itineraryData[dataIndex];
+  const resultDiv = document.getElementById(`ai-restaurant-result-${orderPos}`);
+  resultDiv.classList.remove("hidden");
+  resultDiv.innerHTML = `<div class="bg-white p-3 rounded-lg border border-blue-100 shadow-inner flex items-center text-blue-600"><div class="ai-loading mr-2"></div>AI 正在尋找「${dayData.location}」的 BB 友善餐廳...</div>`;
+  btn.disabled = true; btn.classList.add("opacity-50","cursor-not-allowed");
+
+  const prompt = `你是一個福岡旅遊達人。我現在帶住一個 1 歲 BB，位於日本福岡的「${dayData.location}」。目前狀況是「${currentMode==="rain"?"下雨或太熱，需要室內":currentMode==="tired"?"BB 很累或扭計，需要安靜可休息的地方":"天氣晴朗"}」。
+
+請推薦 2 間在該區附近、對嬰兒友善的餐廳。
+
+請用繁體中文回覆，不需要寒暄。
+
+每間餐廳請列出：
+1. 餐廳名稱
+2. 推薦原因
+3. 必食菜色
+4. 如果不確定實際店名，請清楚標示為「建議搜尋類型」而非虛構資料。`;
+
+  try {
+    const text = await callGemini(prompt, "You are a helpful travel assistant specializing in family-friendly Fukuoka travel. Use Traditional Chinese. Do not invent precise facts when uncertain; say when a suggestion is a search category.");
+    resultDiv.innerHTML = `
+      <div class="bg-blue-50 p-4 rounded-lg border border-blue-100 shadow-sm">
+        ${formatAiText(text || "抱歉，AI 暫時未能提供推薦。")}
+        <p class="ai-disclaimer">⚠️ 以上由 AI 生成，資料僅供參考。出發前請自行核實餐廳資料及營業時間。</p>
+      </div>`;
+  } catch(e) {
+    console.error(e);
+    const isAuth = e.message?.includes("401") || e.message?.includes("403");
+    resultDiv.innerHTML = `<div class="bg-red-50 p-3 rounded-lg border border-red-100 text-red-600">${isAuth?"API Key 無效或已過期，請重新設定。":"連線失敗，請檢查網絡後再試。"}</div>`;
+  } finally {
+    btn.disabled = false; btn.classList.remove("opacity-50","cursor-not-allowed");
+  }
+}
+
+// ─── Translate ────────────────────────────────────────────
+async function translateWithAI() {
+  if (!ensureApiKey()) return;
+  const inputEl   = document.getElementById("ai-translate-input");
+  const resultDiv = document.getElementById("ai-translate-result");
+  const textDiv   = document.getElementById("ai-translate-text");
+  const copyBtn   = document.getElementById("copy-translate-btn");
+  const btn       = document.getElementById("btn-translate");
+  const userText  = inputEl.value.trim();
+  if (!userText) { alert("請先輸入你需要幫忙的說話。"); return; }
+
+  resultDiv.classList.remove("hidden");
+  textDiv.innerHTML = `<div class="flex items-center text-indigo-600"><div class="ai-loading mr-2" style="border-top-color:#4F46E5;"></div>AI 翻譯中...</div>`;
+  copyBtn.classList.add("hidden");
+  btn.disabled = true; btn.classList.add("opacity-50","cursor-not-allowed");
+  lastTranslatedJP = "";
+
+  const prompt = `我是一名在日本福岡旅行的旅客，不會說日文。請幫我將以下句子翻譯成有禮貌、適合出示給當地人看或直接讀出來的日文。
+
+需要翻譯的句子：${userText}
+
+請直接輸出：
+1. 日文
+2. 羅馬拼音
+3. 一句很短的繁體中文發音提示
+
+不要加其他解釋。`;
+
+  try {
+    const text = await callGemini(prompt, "You are a helpful Japanese translator. Provide polite Japanese translations and Traditional Chinese annotations.");
+    lastTranslatedJP = text || "";
+    textDiv.innerHTML = formatAiText(lastTranslatedJP || "翻譯失敗。", "indigo");
+    if (lastTranslatedJP) copyBtn.classList.remove("hidden");
+  } catch(e) {
+    console.error(e);
+    textDiv.innerHTML = `<div class="text-red-600">翻譯服務暫時無法使用，請檢查 API Key 或網絡連線。</div>`;
+  } finally {
+    btn.disabled = false; btn.classList.remove("opacity-50","cursor-not-allowed");
+  }
+}
+
+function copyTranslation() {
+  if (!lastTranslatedJP) return;
+  // Extract first line (Japanese)
+  const jpLine = lastTranslatedJP.split("\n")[0].replace(/^1\.\s*/, "").trim();
+  const toCopy = jpLine || lastTranslatedJP;
+  navigator.clipboard.writeText(toCopy).then(() => {
+    const btn = document.getElementById("copy-translate-btn");
+    btn.textContent = "✅ 已複製！";
+    btn.classList.add("copied");
+    setTimeout(() => { btn.textContent = "📋 複製日文"; btn.classList.remove("copied"); }, 2000);
+  });
+}
+
+// ─── SOS Modal ────────────────────────────────────────────
+const modal        = document.getElementById("sos-modal");
+const modalContent = document.getElementById("modal-content");
+function openSosModal() {
+  modal.classList.remove("hidden"); modal.classList.add("flex");
+  requestAnimationFrame(() => modalContent.classList.remove("translate-y-full"));
+}
+function closeSosModal() {
+  modalContent.classList.add("translate-y-full");
+  setTimeout(() => { modal.classList.add("hidden"); modal.classList.remove("flex"); }, 300);
+}
+modal.addEventListener("click", e => { if (e.target===modal) closeSosModal(); });
+
+// ─── Reset order ──────────────────────────────────────────
+// (optional helper: call resetOrder() from console if needed)
+function resetOrder() {
+  dayOrder = itineraryData.map((_,i)=>i);
+  saveOrder(); renderItinerary();
+}
+
+// ─── Init ─────────────────────────────────────────────────
+renderItinerary();
+updateApiStatus();
+</script>
+
+</body>
+</html>
